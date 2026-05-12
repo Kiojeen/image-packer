@@ -2,28 +2,18 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import { useAppContext } from "@/context/app-context"
 import {
   IconPhoto,
   IconZoomIn,
   IconZoomOut,
   IconMaximize,
+  IconTrash,
 } from "@tabler/icons-react"
 
-interface ImageItem {
-  id: string
-  name: string
-  url: string
-  size: string
-  type: string
-  dimensions?: string
-}
-
 export default function App() {
-  const [images, setImages] = useState<ImageItem[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
   const [zoom, setZoom] = useState(100)
-
-  const activeImage = images.find((img) => img.id === activeId)
+  const { activeImage, deleteImage } = useAppContext()
 
   return (
     <div className="flex h-svh w-full gap-6 overflow-hidden bg-background p-6">
@@ -43,13 +33,11 @@ export default function App() {
               style={{ transform: `scale(${zoom / 100})` }}
               className="transition-transform duration-200 ease-out"
             >
-              <div className="group relative border-4 border-black/5 bg-white p-1 shadow-2xl">
-                <img
-                  // src={activeImage.url}
-                  className="block max-h-[60vh] max-w-full"
-                  alt="Canvas target"
-                />
-              </div>
+              <img
+                src={activeImage.url}
+                className="block max-h-[60vh] max-w-full"
+                alt={activeImage.name}
+              />
             </div>
 
             {/* Floating Zoom Controls */}
@@ -81,6 +69,16 @@ export default function App() {
                 className="h-8 w-8"
               >
                 <IconMaximize size={16} />
+              </Button>
+              <div className="mx-1 h-4 w-px bg-border" />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => deleteImage(activeImage.id)}
+                className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                aria-label="Delete image"
+              >
+                <IconTrash size={16} />
               </Button>
             </div>
           </div>
