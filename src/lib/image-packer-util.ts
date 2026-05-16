@@ -414,5 +414,5 @@ export async function savePackedImagesAsCmykJpeg(packedImages: PackedImage[], ca
   const imageData = context.getImageData(0, 0, exportWidth, exportHeight);
   const jpegBytes = encodeCmykJpeg(imageData.data, exportWidth, exportHeight, 0.9);
   const blob = new Blob([jpegBytes], { type: "image/jpeg" });
-  saveAs(blob, `alganas-tiles-cmyk-${Date.now()}.jpg`);
+  saveAs(blob, `tiles-cmyk-${Date.now()}.jpg`);
 }
