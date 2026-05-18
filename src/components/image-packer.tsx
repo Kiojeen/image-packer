@@ -11,7 +11,9 @@ import {
   UI_PREVIEW_SCALE,
 } from "@/lib/image-packer-util";
 import { Button } from "@/components/ui/button";
+
 import { ImageControls } from "./image-controls";
+import { Input } from "./ui/input";
 
 const ImagePacker: React.FC = () => {
   const { images, updateImage } = useAppContext();
@@ -107,60 +109,54 @@ const ImagePacker: React.FC = () => {
         <ImageControls>
           {selectedImage && (
             <>
-              {/* height */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm">H</span>
+              <div className="flex gap-2 text-xs">
+                {/* height */}
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">H:</span>
+                  <Input
+                    type="number"
+                    value={pxToDisplayCm(selectedImage.naturalHeight)}
+                    className="w-24 border bg-background px-2 py-1"
+                    onChange={(e) => {
+                      const cm = e.currentTarget.valueAsNumber;
 
-                <input
-                  type="number"
-                  min={1}
-                  step={0.1}
-                  value={pxToDisplayCm(selectedImage.naturalHeight)}
-                  className="w-24 border bg-background px-2 py-1"
-                  onChange={(e) => {
-                    const cm = e.currentTarget.valueAsNumber;
+                      if (!Number.isFinite(cm) || cm <= 0) {
+                        return;
+                      }
 
-                    if (!Number.isFinite(cm) || cm <= 0) {
-                      return;
-                    }
+                      updateImage(
+                        selectedImage.id,
+                        selectedImage.naturalWidth,
+                        cm * CM_TO_PX
+                      );
+                    }}
+                  />
+                </div>
 
-                    updateImage(
-                      selectedImage.id,
-                      selectedImage.naturalWidth,
-                      cm * CM_TO_PX
-                    );
-                  }}
-                />
+                {/* width */}
+                <div className="flex items-center gap-1">
+                  <span className="text-muted-foreground">W:</span>
+                  <Input
+                    type="number"
+                    value={pxToDisplayCm(selectedImage.naturalWidth)}
+                    className="h-8 w-24 px-2"
+                    onChange={(e) => {
+                      const cm = e.currentTarget.valueAsNumber;
 
-                <span className="text-sm text-muted-foreground">cm</span>
-              </div>
+                      if (!Number.isFinite(cm) || cm <= 0) {
+                        return;
+                      }
 
-              {/* width */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm">W</span>
+                      updateImage(
+                        selectedImage.id,
+                        cm * CM_TO_PX,
+                        selectedImage.naturalHeight
+                      );
+                    }}
+                  />
 
-                <input
-                  type="number"
-                  min={1}
-                  step={0.1}
-                  value={pxToDisplayCm(selectedImage.naturalWidth)}
-                  className="w-24 border bg-background px-2 py-1"
-                  onChange={(e) => {
-                    const cm = e.currentTarget.valueAsNumber;
-
-                    if (!Number.isFinite(cm) || cm <= 0) {
-                      return;
-                    }
-
-                    updateImage(
-                      selectedImage.id,
-                      cm * CM_TO_PX,
-                      selectedImage.naturalHeight
-                    );
-                  }}
-                />
-
-                <span className="text-sm text-muted-foreground">cm</span>
+                  <span className="text-sm text-muted-foreground">cm</span>
+                </div>
               </div>
 
               <div className="mx-1 h-4 w-px bg-border" />
@@ -186,6 +182,5 @@ const ImagePacker: React.FC = () => {
     </div>
   );
 };
-
 
 export default ImagePacker;

@@ -50,20 +50,64 @@ export function ImageViewer({ image }: ImageViewerProps) {
   const dragStart = useRef({ mouseX: 0, mouseY: 0, cropX: 0, cropY: 0 });
 
   useEffect(() => {
-    if (containerRef.current) {
-      const cw = containerRef.current.clientWidth;
-      const ch = containerRef.current.clientHeight;
+    if (!containerRef.current) return;
 
-      setCrop({ x: 0, y: 0, w: cw, h: ch });
-      setXInput("0.00");
-      setYInput("0.00");
-      setWInput((cw * PX_TO_CM).toFixed(2));
-      setHInput((ch * PX_TO_CM).toFixed(2));
-      setIsMeasured(true);
+    const cw = containerRef.current.clientWidth;
+    const ch = containerRef.current.clientHeight;
+    if (cw === 0 || ch === 0) return;
 
-      updateImageCrop(image.id, cw, ch, 0, 0);
+    // Decide initial crop from context or full container
+    let initialCrop = { x: 0, y: 0, w: cw, h: ch };
+
+    // If the image already has stored crop dimensions (from previous session / edit)
+    if (image.cropWidth > 0 && image.cropHeight > 0) {
+      // Clamp stored values to current container size (in case window was resized)
+      const clampedW = Math.min(image.cropWidth, cw);
+      const clampedH = Math.min(image.cropHeight, ch);
+      const clampedX = Math.min(image.cropX, cw - clampedW);
+      const clampedY = Math.min(image.cropY, ch - clampedH);
+
+      initialCrop = {
+        x: Math.max(0, clampedX),
+        y: Math.max(0, clampedY),
+        w: clampedW,
+        h: clampedH,
+      };
     }
-  }, [image.id, image.naturalWidth, image.naturalHeight, updateImageCrop]);
+
+    setCrop(initialCrop);
+    setXInput((initialCrop.x * PX_TO_CM).toFixed(2));
+    setYInput((initialCrop.y * PX_TO_CM).toFixed(2));
+    setWInput((initialCrop.w * PX_TO_CM).toFixed(2));
+    setHInput((initialCrop.h * PX_TO_CM).toFixed(2));
+    setIsMeasured(true);
+
+    // Only update context if the crop actually changed from stored values
+    const needsUpdate =
+      image.cropX !== initialCrop.x ||
+      image.cropY !== initialCrop.y ||
+      image.cropWidth !== initialCrop.w ||
+      image.cropHeight !== initialCrop.h;
+
+    if (needsUpdate) {
+      updateImageCrop(
+        image.id,
+        initialCrop.w,
+        initialCrop.h,
+        initialCrop.x,
+        initialCrop.y
+      );
+    }
+  }, [
+    image.id,
+    image.naturalWidth,
+    image.naturalHeight,
+    image.cropWidth,
+    image.cropHeight,
+    image.cropX,
+    image.cropY,
+    updateImageCrop,
+  ]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
