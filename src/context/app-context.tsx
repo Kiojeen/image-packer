@@ -16,6 +16,11 @@ export interface ImageItem {
 
   naturalHeight: number;
   naturalWidth: number;
+
+  cropHeight: number;
+  cropWidth: number;
+  cropX: number;
+  cropY: number;
 }
 
 function createImageItem(file: File): ImageItem {
@@ -25,6 +30,10 @@ function createImageItem(file: File): ImageItem {
     url: URL.createObjectURL(file),
     naturalHeight: 0,
     naturalWidth: 0,
+    cropHeight: 0,
+    cropWidth: 0,
+    cropX: 0,
+    cropY: 0,
   };
 }
 
@@ -38,6 +47,13 @@ interface AppContextValue {
   addImages: (files: FileList | File[]) => void;
   deleteImage: (imageId: string) => void;
   updateImage: (id: string, width: number, height: number) => void;
+  updateImageCrop: (
+    id: string,
+    width: number,
+    height: number,
+    x: number,
+    y: number
+  ) => void;
 
   selectImage: (imageId: string | null) => void;
   selectTileCanvas: () => void;
@@ -156,6 +172,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const updateImageCrop = useCallback(
+    (id: string, width: number, height: number, x: number, y: number) => {
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === id
+            ? {
+                ...img,
+                cropWidth: width > 0 ? width : img.cropWidth,
+                cropHeight: height > 0 ? height : img.cropHeight,
+                cropX: x,
+                cropY: y,
+              }
+            : img
+        )
+      );
+    },
+    []
+  );
+
   /**
    * Selects an image as the active view
    */
@@ -185,6 +220,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addImages,
       deleteImage,
       updateImage,
+      updateImageCrop,
 
       selectImage,
       selectTileCanvas,
@@ -199,6 +235,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       selectImage,
       selectTileCanvas,
       updateImage,
+      updateImageCrop,
     ]
   );
 

@@ -1,16 +1,17 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { useAppContext } from "@/context/app-context";
 import { IconDownload, IconLoader2 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import ImageControlsContainer from "./image-controls-container";
-import { 
-  packImages, 
-  savePackedImagesAsCmykJpeg, 
-  ARTBOARD_WIDTH_PX, 
-  CM_TO_PX, 
-  PX_TO_CM, 
-  UI_PREVIEW_SCALE 
+
+import {
+  ARTBOARD_WIDTH_PX,
+  CM_TO_PX,
+  packImages,
+  PX_TO_CM,
+  savePackedImagesAsCmykJpeg,
+  UI_PREVIEW_SCALE,
 } from "@/lib/image-packer-util";
+import { Button } from "@/components/ui/button";
+import { ImageControls } from "./image-controls";
 
 const ImagePacker: React.FC = () => {
   const { images, updateImage } = useAppContext();
@@ -54,7 +55,7 @@ const ImagePacker: React.FC = () => {
   return (
     <div className="relative flex h-full items-center justify-center overflow-hidden">
       <div
-      className="bg-white relative shrink-0 "
+        className="relative shrink-0 bg-white"
         style={{
           width: ARTBOARD_WIDTH_PX,
           height: canvasHeight,
@@ -103,7 +104,7 @@ const ImagePacker: React.FC = () => {
       </div>
 
       {packedImages.length > 0 && (
-        <ImageControlsContainer>
+        <ImageControls>
           {selectedImage && (
             <>
               {/* height */}
@@ -180,10 +181,11 @@ const ImagePacker: React.FC = () => {
             )}
             {isSavingCmyk ? "Saving" : "CMYK JPG"}
           </Button>
-        </ImageControlsContainer>
+        </ImageControls>
       )}
     </div>
   );
 };
+
 
 export default ImagePacker;

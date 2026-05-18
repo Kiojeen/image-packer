@@ -1,4 +1,5 @@
 import EmptyCanvas from "./components/empty-canvas";
+import { ImageControlsRoot } from "./components/image-controls";
 import TiledCanvas from "./components/image-packer";
 import { ImageViewer } from "./components/image-viewer";
 import { useAppContext } from "./context/app-context";
@@ -19,6 +20,7 @@ export default function App() {
           </div>
         )}
       </div>
+      <ImageControlsRoot />
     </div>
   );
 }
