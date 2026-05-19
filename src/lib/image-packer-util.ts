@@ -378,7 +378,11 @@ function loadImageElement(src: string) {
   });
 }
 
-export async function savePackedImagesAsCmykJpeg(packedImages: PackedImage[], canvasHeight: number) {
+export async function savePackedImagesAsCmykJpeg(
+  packedImages: PackedImage[], 
+  canvasHeight: number, 
+  includeLabels: boolean
+) {
   const exportWidth = Math.ceil(ARTBOARD_WIDTH_PX);
   const exportHeight = Math.ceil(canvasHeight);
   const canvas = document.createElement("canvas");
@@ -408,6 +412,15 @@ export async function savePackedImagesAsCmykJpeg(packedImages: PackedImage[], ca
       context.restore();
     } else {
       context.drawImage(imageElement, image.left, image.top, image.renderW, image.renderH);
+    }
+
+    if (includeLabels) {
+      context.fillStyle = "black";
+      context.font = "42px monospace";
+      context.textBaseline = "top";
+      const wCm = (image.naturalWidth * PX_TO_CM).toFixed(2);
+      const hCm = (image.naturalHeight * PX_TO_CM).toFixed(2);
+      context.fillText(`W: ${wCm} cm | H: ${hCm} cm`, image.left, image.top + image.renderH + 8);
     }
   }
 

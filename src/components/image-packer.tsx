@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 import { ImageControls } from "./image-controls";
+import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
 
 const ImagePacker: React.FC = () => {
@@ -20,6 +21,8 @@ const ImagePacker: React.FC = () => {
 
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [isSavingCmyk, setIsSavingCmyk] = useState(false);
+
+  const [isLabled, setIsLabled] = useState(false);
 
   const selectedImage =
     images.find((img) => img.id === selectedImageId) ?? null;
@@ -37,7 +40,7 @@ const ImagePacker: React.FC = () => {
     setIsSavingCmyk(true);
 
     try {
-      await savePackedImagesAsCmykJpeg(packedImages, canvasHeight);
+      await savePackedImagesAsCmykJpeg(packedImages, canvasHeight, isLabled);
     } catch (error) {
       console.error(error);
       window.alert(
@@ -48,7 +51,7 @@ const ImagePacker: React.FC = () => {
     } finally {
       setIsSavingCmyk(false);
     }
-  }, [canvasHeight, isSavingCmyk, packedImages]);
+  }, [canvasHeight, isSavingCmyk, packedImages, isLabled]);
 
   function pxToDisplayCm(px: number) {
     return Number((px * PX_TO_CM).toFixed(2));
@@ -69,38 +72,62 @@ const ImagePacker: React.FC = () => {
           const isSelected = img.id === selectedImageId;
 
           return (
-            <div
-              key={img.id}
-              onClick={() => setSelectedImageId(img.id)}
-              style={{
-                position: "absolute",
-                left: img.left,
-                top: img.top,
-                width: img.renderW,
-                height: img.renderH,
-                overflow: "hidden",
-                cursor: "pointer",
-                outline: isSelected ? "8px solid #3b82f6" : "1px solid #eee",
-              }}
-            >
-              <img
-                src={img.url}
-                alt={img.name}
+            <>
+              <div
+                key={img.id}
+                onClick={() => setSelectedImageId(img.id)}
                 style={{
                   position: "absolute",
-                  left: 0,
-                  top: 0,
-                  display: "block",
-                  width: img.naturalWidth,
-                  height: img.naturalHeight,
-                  maxWidth: "none",
-                  transformOrigin: "top left",
-                  transform: img.isRotated
-                    ? `matrix(0, 1, -1, 0, ${img.renderW}, 0)`
-                    : "none",
+                  left: img.left,
+                  top: img.top,
+                  width: img.renderW,
+                  height: img.renderH,
+                  overflow: "hidden",
+                  cursor: "pointer",
+                  outline: isSelected ? "12px solid #3b82f6" : "1px solid #eee",
                 }}
-              />
-            </div>
+              >
+                <img
+                  src={img.url}
+                  alt={img.name}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    display: "block",
+                    width: img.naturalWidth,
+                    height: img.naturalHeight,
+                    maxWidth: "none",
+                    transformOrigin: "top left",
+                    transform: img.isRotated
+                      ? `matrix(0, 1, -1, 0, ${img.renderW}, 0)`
+                      : "none",
+                  }}
+                />
+              </div>
+              {isLabled && (
+                <div
+                  key={`${img.id}-label`}
+                  style={{
+                    position: "absolute",
+                    left: img.left,
+                    top: img.top + img.renderH + 4,
+                    fontSize: "42px",
+                    color: "black",
+                    padding: "2px 5px",
+                    borderRadius: "4px",
+                    whiteSpace: "nowrap",
+                    pointerEvents: "none",
+                    zIndex: 5,
+                    fontFamily: "monospace",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  W: {pxToDisplayCm(img.naturalWidth)} cm | H:{" "}
+                  {pxToDisplayCm(img.naturalHeight)} cm
+                </div>
+              )}
+            </>
           );
         })}
       </div>
@@ -177,6 +204,11 @@ const ImagePacker: React.FC = () => {
             )}
             {isSavingCmyk ? "Saving" : "CMYK JPG"}
           </Button>
+
+          <Checkbox
+            checked={isLabled}
+            onCheckedChange={(checked) => setIsLabled(checked === true)}
+          />
         </ImageControls>
       )}
     </div>
