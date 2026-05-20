@@ -39,6 +39,7 @@ export function ImageViewer({ image }: ImageViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isMeasured, setIsMeasured] = useState(false);
   const [crop, setCrop] = useState({ x: 0, y: 0, w: 0, h: 0 });
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
   // Input string states
   const [xInput, setXInput] = useState("");
@@ -48,24 +49,48 @@ export function ImageViewer({ image }: ImageViewerProps) {
 
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ mouseX: 0, mouseY: 0, cropX: 0, cropY: 0 });
+  const displayScale =
+    containerSize.width > 0 && image.naturalWidth > 0
+      ? containerSize.width / image.naturalWidth
+      : 1;
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const cw = containerRef.current.clientWidth;
-    const ch = containerRef.current.clientHeight;
-    if (cw === 0 || ch === 0) return;
+    const updateSize = () => {
+      if (!containerRef.current) return;
+      setContainerSize({
+        width: containerRef.current.clientWidth,
+        height: containerRef.current.clientHeight,
+      });
+    };
+
+    updateSize();
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(containerRef.current);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
 
     // Decide initial crop from context or full container
-    let initialCrop = { x: 0, y: 0, w: cw, h: ch };
+    let initialCrop = {
+      x: 0,
+      y: 0,
+      w: image.naturalWidth,
+      h: image.naturalHeight,
+    };
 
     // If the image already has stored crop dimensions (from previous session / edit)
     if (image.cropWidth > 0 && image.cropHeight > 0) {
       // Clamp stored values to current container size (in case window was resized)
-      const clampedW = Math.min(image.cropWidth, cw);
-      const clampedH = Math.min(image.cropHeight, ch);
-      const clampedX = Math.min(image.cropX, cw - clampedW);
-      const clampedY = Math.min(image.cropY, ch - clampedH);
+      const clampedW = Math.min(image.cropWidth, image.naturalWidth);
+      const clampedH = Math.min(image.cropHeight, image.naturalHeight);
+      const clampedX = Math.min(image.cropX, image.naturalWidth - clampedW);
+      const clampedY = Math.min(image.cropY, image.naturalHeight - clampedH);
 
       initialCrop = {
         x: Math.max(0, clampedX),
@@ -75,12 +100,14 @@ export function ImageViewer({ image }: ImageViewerProps) {
       };
     }
 
+    /* eslint-disable react-hooks/set-state-in-effect */
     setCrop(initialCrop);
     setXInput((initialCrop.x * PX_TO_CM).toFixed(2));
     setYInput((initialCrop.y * PX_TO_CM).toFixed(2));
     setWInput((initialCrop.w * PX_TO_CM).toFixed(2));
     setHInput((initialCrop.h * PX_TO_CM).toFixed(2));
     setIsMeasured(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     // Only update context if the crop actually changed from stored values
     const needsUpdate =
@@ -121,19 +148,16 @@ export function ImageViewer({ image }: ImageViewerProps) {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !containerRef.current) return;
+    if (!isDragging) return;
 
-    const cw = containerRef.current.clientWidth;
-    const ch = containerRef.current.clientHeight;
-
-    const dx = (e.clientX - dragStart.current.mouseX) / scale;
-    const dy = (e.clientY - dragStart.current.mouseY) / scale;
+    const dx = (e.clientX - dragStart.current.mouseX) / scale / displayScale;
+    const dy = (e.clientY - dragStart.current.mouseY) / scale / displayScale;
 
     let newX = dragStart.current.cropX + dx;
     let newY = dragStart.current.cropY + dy;
 
-    newX = Math.max(0, Math.min(newX, cw - crop.w));
-    newY = Math.max(0, Math.min(newY, ch - crop.h));
+    newX = Math.max(0, Math.min(newX, image.naturalWidth - crop.w));
+    newY = Math.max(0, Math.min(newY, image.naturalHeight - crop.h));
 
     setCrop({ ...crop, x: newX, y: newY });
 
@@ -149,8 +173,8 @@ export function ImageViewer({ image }: ImageViewerProps) {
   };
 
   const handleChange = (field: "x" | "y" | "w" | "h", val: string) => {
-    const cw = containerRef.current?.clientWidth || 0;
-    const ch = containerRef.current?.clientHeight || 0;
+    const cw = image.naturalWidth;
+    const ch = image.naturalHeight;
     const parsed = parseFloat(val);
 
     if (field === "x") setXInput(val);
@@ -199,15 +223,21 @@ export function ImageViewer({ image }: ImageViewerProps) {
   };
 
   const handleDownload = async (format: "png" | "jpeg") => {
-    if (!containerRef.current) return;
+    const imgElement = new Image();
+    imgElement.crossOrigin = "anonymous";
+    imgElement.src = image.url;
 
-    const containerW = containerRef.current.clientWidth;
-    const ratio = image.naturalWidth / containerW;
+    await new Promise((resolve) => {
+      imgElement.onload = resolve;
+    });
 
-    const actualX = crop.x * ratio;
-    const actualY = crop.y * ratio;
-    const actualW = crop.w * ratio;
-    const actualH = crop.h * ratio;
+    const ratioX = imgElement.naturalWidth / image.naturalWidth;
+    const ratioY = imgElement.naturalHeight / image.naturalHeight;
+
+    const actualX = crop.x * ratioX;
+    const actualY = crop.y * ratioY;
+    const actualW = crop.w * ratioX;
+    const actualH = crop.h * ratioY;
 
     const canvas = document.createElement("canvas");
     canvas.width = actualW;
@@ -220,14 +250,6 @@ export function ImageViewer({ image }: ImageViewerProps) {
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, actualW, actualH);
     }
-
-    const imgElement = new Image();
-    imgElement.crossOrigin = "anonymous";
-    imgElement.src = image.url;
-
-    await new Promise((resolve) => {
-      imgElement.onload = resolve;
-    });
 
     ctx.drawImage(
       imgElement,
@@ -260,9 +282,8 @@ export function ImageViewer({ image }: ImageViewerProps) {
   };
 
   const resetCrop = () => {
-    if (!containerRef.current) return;
-    const cw = containerRef.current.clientWidth;
-    const ch = containerRef.current.clientHeight;
+    const cw = image.naturalWidth;
+    const ch = image.naturalHeight;
 
     setCrop({ x: 0, y: 0, w: cw, h: ch });
     setXInput("0.00");
@@ -303,10 +324,10 @@ export function ImageViewer({ image }: ImageViewerProps) {
               <div
                 className="absolute z-10 cursor-move border-2 border-primary"
                 style={{
-                  left: crop.x,
-                  top: crop.y,
-                  width: crop.w,
-                  height: crop.h,
+                  left: crop.x * displayScale,
+                  top: crop.y * displayScale,
+                  width: crop.w * displayScale,
+                  height: crop.h * displayScale,
                 }}
                 onMouseDown={handleMouseDown}
               >

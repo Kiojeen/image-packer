@@ -72,9 +72,8 @@ const ImagePacker: React.FC = () => {
           const isSelected = img.id === selectedImageId;
 
           return (
-            <>
+            <React.Fragment key={img.id}>
               <div
-                key={img.id}
                 onClick={() => setSelectedImageId(img.id)}
                 style={{
                   position: "absolute",
@@ -87,23 +86,34 @@ const ImagePacker: React.FC = () => {
                   outline: isSelected ? "12px solid #3b82f6" : "1px solid #eee",
                 }}
               >
-                <img
-                  src={img.url}
-                  alt={img.name}
+                <div
                   style={{
                     position: "absolute",
                     left: 0,
                     top: 0,
-                    display: "block",
-                    width: img.naturalWidth,
-                    height: img.naturalHeight,
-                    maxWidth: "none",
+                    width: img.sourceW,
+                    height: img.sourceH,
+                    overflow: "hidden",
                     transformOrigin: "top left",
                     transform: img.isRotated
-                      ? `matrix(0, 1, -1, 0, ${img.renderW}, 0)`
+                      ? `translate(${img.renderW}px, 0) rotate(90deg)`
                       : "none",
                   }}
-                />
+                >
+                  <img
+                    src={img.url}
+                    alt={img.name}
+                    style={{
+                      position: "absolute",
+                      left: -img.sourceX,
+                      top: -img.sourceY,
+                      display: "block",
+                      width: img.naturalWidth,
+                      height: img.naturalHeight,
+                      maxWidth: "none",
+                    }}
+                  />
+                </div>
               </div>
               {isLabled && (
                 <div
@@ -123,11 +133,11 @@ const ImagePacker: React.FC = () => {
                     lineHeight: 1.2,
                   }}
                 >
-                  W: {pxToDisplayCm(img.naturalWidth)} cm | H:{" "}
-                  {pxToDisplayCm(img.naturalHeight)} cm
+                  W: {pxToDisplayCm(img.sourceW)} cm | H:{" "}
+                  {pxToDisplayCm(img.sourceH)} cm
                 </div>
               )}
-            </>
+            </React.Fragment>
           );
         })}
       </div>

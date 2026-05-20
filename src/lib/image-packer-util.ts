@@ -1,5 +1,6 @@
 import { type ImageItem } from "@/context/app-context";
 import { saveAs } from "file-saver";
+
 import { encodeCmykJpeg } from "@/lib/cmyk-jpeg";
 
 export const CM_TO_PX = 37.7952755906;
@@ -14,7 +15,7 @@ const SEARCH_IMAGE_LIMIT = 10;
 const MAX_SEARCH_STATES = 50000;
 const MAX_CANDIDATES_PER_STEP = 32;
 
-const PACKING_HEURISTICS =["height", "shortSide", "longSide", "area"] as const;
+const PACKING_HEURISTICS = ["height", "shortSide", "longSide", "area"] as const;
 
 export interface Rect {
   x: number;
@@ -29,6 +30,10 @@ export interface PackedImage extends ImageItem {
   renderW: number;
   renderH: number;
   isRotated: boolean;
+  sourceX: number;
+  sourceY: number;
+  sourceW: number;
+  sourceH: number;
 }
 
 type PackingHeuristic = (typeof PACKING_HEURISTICS)[number];
@@ -60,19 +65,50 @@ function hasUsableSize(image: ImageItem) {
   );
 }
 
+function hasUsableCrop(image: ImageItem) {
+  return (
+    Number.isFinite(image.cropWidth) &&
+    Number.isFinite(image.cropHeight) &&
+    image.cropWidth > EPSILON &&
+    image.cropHeight > EPSILON
+  );
+}
+
+function getSourceRect(image: ImageItem): Rect {
+  if (!hasUsableCrop(image)) {
+    return {
+      x: 0,
+      y: 0,
+      w: image.naturalWidth,
+      h: image.naturalHeight,
+    };
+  }
+
+  const sourceW = Math.min(image.cropWidth, image.naturalWidth);
+  const sourceH = Math.min(image.cropHeight, image.naturalHeight);
+
+  return {
+    x: Math.max(0, Math.min(image.cropX, image.naturalWidth - sourceW)),
+    y: Math.max(0, Math.min(image.cropY, image.naturalHeight - sourceH)),
+    w: sourceW,
+    h: sourceH,
+  };
+}
+
 function getOrientations(image: ImageItem): Orientation[] {
-  const orientations: Orientation[] =[
+  const source = getSourceRect(image);
+  const orientations: Orientation[] = [
     {
-      renderW: image.naturalWidth,
-      renderH: image.naturalHeight,
+      renderW: source.w,
+      renderH: source.h,
       isRotated: false,
     },
   ];
 
-  if (Math.abs(image.naturalWidth - image.naturalHeight) > EPSILON) {
+  if (Math.abs(source.w - source.h) > EPSILON) {
     orientations.push({
-      renderW: image.naturalHeight,
-      renderH: image.naturalWidth,
+      renderW: source.h,
+      renderH: source.w,
       isRotated: true,
     });
   }
@@ -81,19 +117,23 @@ function getOrientations(image: ImageItem): Orientation[] {
 }
 
 function imageArea(image: ImageItem) {
-  return image.naturalWidth * image.naturalHeight;
+  const source = getSourceRect(image);
+  return source.w * source.h;
 }
 
 function imageMaxSide(image: ImageItem) {
-  return Math.max(image.naturalWidth, image.naturalHeight);
+  const source = getSourceRect(image);
+  return Math.max(source.w, source.h);
 }
 
 function imageMinSide(image: ImageItem) {
-  return Math.min(image.naturalWidth, image.naturalHeight);
+  const source = getSourceRect(image);
+  return Math.min(source.w, source.h);
 }
 
 function imagePerimeter(image: ImageItem) {
-  return image.naturalWidth + image.naturalHeight;
+  const source = getSourceRect(image);
+  return source.w + source.h;
 }
 
 function buildPackingOrders(images: ImageItem[]) {
@@ -102,8 +142,8 @@ function buildPackingOrders(images: ImageItem[]) {
     [...images].sort((a, b) => imageMaxSide(b) - imageMaxSide(a)),
     [...images].sort((a, b) => imageMinSide(b) - imageMinSide(a)),
     [...images].sort((a, b) => imagePerimeter(b) - imagePerimeter(a)),
-    [...images].sort((a, b) => b.naturalHeight - a.naturalHeight),
-    [...images].sort((a, b) => b.naturalWidth - a.naturalWidth),
+    [...images].sort((a, b) => getSourceRect(b).h - getSourceRect(a).h),
+    [...images].sort((a, b) => getSourceRect(b).w - getSourceRect(a).w),
     images,
   ];
 }
@@ -123,14 +163,19 @@ function splitFreeRect(free: Rect, used: Rect): Rect[] {
     return [free];
   }
 
-  const result: Rect[] =[];
+  const result: Rect[] = [];
 
   if (used.y > free.y) {
     result.push({ x: free.x, y: free.y, w: free.w, h: used.y - free.y });
   }
 
   if (usedBottom < freeBottom) {
-    result.push({ x: free.x, y: usedBottom, w: free.w, h: freeBottom - usedBottom });
+    result.push({
+      x: free.x,
+      y: usedBottom,
+      w: free.w,
+      h: freeBottom - usedBottom,
+    });
   }
 
   if (used.x > free.x) {
@@ -138,7 +183,12 @@ function splitFreeRect(free: Rect, used: Rect): Rect[] {
   }
 
   if (usedRight < freeRight) {
-    result.push({ x: usedRight, y: free.y, w: freeRight - usedRight, h: free.h });
+    result.push({
+      x: usedRight,
+      y: free.y,
+      w: freeRight - usedRight,
+      h: free.h,
+    });
   }
 
   return result.filter((rect) => rect.w > EPSILON && rect.h > EPSILON);
@@ -163,21 +213,33 @@ function areSameRect(a: Rect, b: Rect) {
 }
 
 function pruneFreeRects(rects: Rect[]) {
-  const uniqueRects: Rect[] =[];
+  const uniqueRects: Rect[] = [];
 
   for (const rect of rects) {
-    if (rect.w <= EPSILON || rect.h <= EPSILON || uniqueRects.some((existingRect) => areSameRect(existingRect, rect))) {
+    if (
+      rect.w <= EPSILON ||
+      rect.h <= EPSILON ||
+      uniqueRects.some((existingRect) => areSameRect(existingRect, rect))
+    ) {
       continue;
     }
     uniqueRects.push(rect);
   }
 
   return uniqueRects.filter(
-    (rect, index) => !uniqueRects.some((otherRect, otherIndex) => index !== otherIndex && containsRect(otherRect, rect))
+    (rect, index) =>
+      !uniqueRects.some(
+        (otherRect, otherIndex) =>
+          index !== otherIndex && containsRect(otherRect, rect)
+      )
   );
 }
 
-function scorePlacement(free: Rect, orientation: Orientation, heuristic: PackingHeuristic): PackingScore {
+function scorePlacement(
+  free: Rect,
+  orientation: Orientation,
+  heuristic: PackingHeuristic
+): PackingScore {
   const leftoverW = free.w - orientation.renderW;
   const leftoverH = free.h - orientation.renderH;
   const shortSideFit = Math.min(leftoverW, leftoverH);
@@ -187,9 +249,11 @@ function scorePlacement(free: Rect, orientation: Orientation, heuristic: Packing
   const areaFit = free.w * free.h - orientation.renderW * orientation.renderH;
 
   if (heuristic === "height") return [bottom, shortSideFit, longSideFit, right];
-  if (heuristic === "shortSide") return [shortSideFit, longSideFit, bottom, right];
-  if (heuristic === "longSide") return [longSideFit, shortSideFit, bottom, right];
-  return[areaFit, bottom, shortSideFit, right];
+  if (heuristic === "shortSide")
+    return [shortSideFit, longSideFit, bottom, right];
+  if (heuristic === "longSide")
+    return [longSideFit, shortSideFit, bottom, right];
+  return [areaFit, bottom, shortSideFit, right];
 }
 
 function compareScores(a: PackingScore, b: PackingScore) {
@@ -199,12 +263,20 @@ function compareScores(a: PackingScore, b: PackingScore) {
   return 0;
 }
 
-function findBestCandidate(image: ImageItem, freeRects: Rect[], heuristic: PackingHeuristic) {
+function findBestCandidate(
+  image: ImageItem,
+  freeRects: Rect[],
+  heuristic: PackingHeuristic
+) {
   let bestCandidate: PackingCandidate | null = null;
 
   for (const orientation of getOrientations(image)) {
     for (const free of freeRects) {
-      if (orientation.renderW > free.w + EPSILON || orientation.renderH > free.h + EPSILON) continue;
+      if (
+        orientation.renderW > free.w + EPSILON ||
+        orientation.renderH > free.h + EPSILON
+      )
+        continue;
 
       const candidate: PackingCandidate = {
         ...orientation,
@@ -213,7 +285,10 @@ function findBestCandidate(image: ImageItem, freeRects: Rect[], heuristic: Packi
         score: scorePlacement(free, orientation, heuristic),
       };
 
-      if (!bestCandidate || compareScores(candidate.score, bestCandidate.score) < 0) {
+      if (
+        !bestCandidate ||
+        compareScores(candidate.score, bestCandidate.score) < 0
+      ) {
         bestCandidate = candidate;
       }
     }
@@ -221,12 +296,20 @@ function findBestCandidate(image: ImageItem, freeRects: Rect[], heuristic: Packi
   return bestCandidate;
 }
 
-function findPlacementCandidates(image: ImageItem, freeRects: Rect[], heuristic: PackingHeuristic) {
-  const candidates: PackingCandidate[] =[];
+function findPlacementCandidates(
+  image: ImageItem,
+  freeRects: Rect[],
+  heuristic: PackingHeuristic
+) {
+  const candidates: PackingCandidate[] = [];
 
   for (const orientation of getOrientations(image)) {
     for (const free of freeRects) {
-      if (orientation.renderW > free.w + EPSILON || orientation.renderH > free.h + EPSILON) continue;
+      if (
+        orientation.renderW > free.w + EPSILON ||
+        orientation.renderH > free.h + EPSILON
+      )
+        continue;
       candidates.push({
         ...orientation,
         left: free.x,
@@ -236,23 +319,29 @@ function findPlacementCandidates(image: ImageItem, freeRects: Rect[], heuristic:
     }
   }
 
-  const uniqueCandidates: PackingCandidate[] =[];
+  const uniqueCandidates: PackingCandidate[] = [];
   for (const candidate of candidates) {
-    if (uniqueCandidates.some((existingCandidate) => 
-      Math.abs(existingCandidate.left - candidate.left) < EPSILON &&
-      Math.abs(existingCandidate.top - candidate.top) < EPSILON &&
-      Math.abs(existingCandidate.renderW - candidate.renderW) < EPSILON &&
-      Math.abs(existingCandidate.renderH - candidate.renderH) < EPSILON
-    )) continue;
+    if (
+      uniqueCandidates.some(
+        (existingCandidate) =>
+          Math.abs(existingCandidate.left - candidate.left) < EPSILON &&
+          Math.abs(existingCandidate.top - candidate.top) < EPSILON &&
+          Math.abs(existingCandidate.renderW - candidate.renderW) < EPSILON &&
+          Math.abs(existingCandidate.renderH - candidate.renderH) < EPSILON
+      )
+    )
+      continue;
     uniqueCandidates.push(candidate);
   }
 
-  return uniqueCandidates.sort((a, b) => {
-    const scoreComparison = compareScores(a.score, b.score);
-    if (scoreComparison !== 0) return scoreComparison;
-    if (Math.abs(a.top - b.top) > EPSILON) return a.top - b.top;
-    return a.left - b.left;
-  }).slice(0, MAX_CANDIDATES_PER_STEP);
+  return uniqueCandidates
+    .sort((a, b) => {
+      const scoreComparison = compareScores(a.score, b.score);
+      if (scoreComparison !== 0) return scoreComparison;
+      if (Math.abs(a.top - b.top) > EPSILON) return a.top - b.top;
+      return a.left - b.left;
+    })
+    .slice(0, MAX_CANDIDATES_PER_STEP);
 }
 
 function createSpacingRect(candidate: PackingCandidate): Rect {
@@ -264,26 +353,51 @@ function createSpacingRect(candidate: PackingCandidate): Rect {
   };
 }
 
-function packImageOrderGreedy(images: ImageItem[], heuristic: PackingHeuristic): PackingResult | null {
+function createPackedImage(
+  image: ImageItem,
+  candidate: PackingCandidate
+): PackedImage {
+  const source = getSourceRect(image);
+
+  return {
+    ...image,
+    left: candidate.left,
+    top: candidate.top,
+    renderW: candidate.renderW,
+    renderH: candidate.renderH,
+    isRotated: candidate.isRotated,
+    sourceX: source.x,
+    sourceY: source.y,
+    sourceW: source.w,
+    sourceH: source.h,
+  };
+}
+
+function packImageOrderGreedy(
+  images: ImageItem[],
+  heuristic: PackingHeuristic
+): PackingResult | null {
   let maxY = GAP_PX;
-  let freeRects: Rect[] =[{ x: GAP_PX, y: GAP_PX, w: ARTBOARD_WIDTH_PX - GAP_PX * 2, h: MAX_PACKING_HEIGHT_PX }];
-  const packedImages: PackedImage[] =[];
+  let freeRects: Rect[] = [
+    {
+      x: GAP_PX,
+      y: GAP_PX,
+      w: ARTBOARD_WIDTH_PX - GAP_PX * 2,
+      h: MAX_PACKING_HEIGHT_PX,
+    },
+  ];
+  const packedImages: PackedImage[] = [];
 
   for (const image of images) {
     const candidate = findBestCandidate(image, freeRects, heuristic);
     if (!candidate) return null;
 
-    packedImages.push({
-      ...image,
-      left: candidate.left,
-      top: candidate.top,
-      renderW: candidate.renderW,
-      renderH: candidate.renderH,
-      isRotated: candidate.isRotated,
-    });
+    packedImages.push(createPackedImage(image, candidate));
 
     const occupied = createSpacingRect(candidate);
-    const splitRects = freeRects.flatMap((freeRect) => splitFreeRect(freeRect, occupied));
+    const splitRects = freeRects.flatMap((freeRect) =>
+      splitFreeRect(freeRect, occupied)
+    );
     freeRects = pruneFreeRects(splitRects);
     maxY = Math.max(maxY, candidate.top + candidate.renderH);
   }
@@ -291,18 +405,33 @@ function packImageOrderGreedy(images: ImageItem[], heuristic: PackingHeuristic):
   return { packedImages, canvasHeight: maxY + GAP_PX };
 }
 
-function packImageOrderSearch(images: ImageItem[], heuristic: PackingHeuristic, bestKnownHeight: number): PackingResult | null {
+function packImageOrderSearch(
+  images: ImageItem[],
+  heuristic: PackingHeuristic,
+  bestKnownHeight: number
+): PackingResult | null {
   if (images.length > SEARCH_IMAGE_LIMIT) return null;
 
   const currentPacked: PackedImage[] = [];
-  const initialFreeRects: Rect[] =[{ x: GAP_PX, y: GAP_PX, w: ARTBOARD_WIDTH_PX - GAP_PX * 2, h: MAX_PACKING_HEIGHT_PX }];
+  const initialFreeRects: Rect[] = [
+    {
+      x: GAP_PX,
+      y: GAP_PX,
+      w: ARTBOARD_WIDTH_PX - GAP_PX * 2,
+      h: MAX_PACKING_HEIGHT_PX,
+    },
+  ];
   let bestPacking: PackingResult | null = null;
   let bestHeight = bestKnownHeight;
   let searchedStates = 0;
 
   const search = (index: number, freeRects: Rect[], currentMaxY: number) => {
     searchedStates += 1;
-    if (searchedStates > MAX_SEARCH_STATES || currentMaxY + GAP_PX >= bestHeight - EPSILON) return;
+    if (
+      searchedStates > MAX_SEARCH_STATES ||
+      currentMaxY + GAP_PX >= bestHeight - EPSILON
+    )
+      return;
 
     if (index === images.length) {
       const canvasHeight = currentMaxY + GAP_PX;
@@ -317,9 +446,15 @@ function packImageOrderSearch(images: ImageItem[], heuristic: PackingHeuristic, 
     const candidates = findPlacementCandidates(image, freeRects, heuristic);
     for (const candidate of candidates) {
       const occupied = createSpacingRect(candidate);
-      const nextFreeRects = pruneFreeRects(freeRects.flatMap((freeRect) => splitFreeRect(freeRect, occupied)));
-      currentPacked.push({ ...image, left: candidate.left, top: candidate.top, renderW: candidate.renderW, renderH: candidate.renderH, isRotated: candidate.isRotated });
-      search(index + 1, nextFreeRects, Math.max(currentMaxY, candidate.top + candidate.renderH));
+      const nextFreeRects = pruneFreeRects(
+        freeRects.flatMap((freeRect) => splitFreeRect(freeRect, occupied))
+      );
+      currentPacked.push(createPackedImage(image, candidate));
+      search(
+        index + 1,
+        nextFreeRects,
+        Math.max(currentMaxY, candidate.top + candidate.renderH)
+      );
       currentPacked.pop();
     }
   };
@@ -328,19 +463,34 @@ function packImageOrderSearch(images: ImageItem[], heuristic: PackingHeuristic, 
   return bestPacking;
 }
 
-function isBetterPacking(candidate: PackingResult, current: PackingResult | null) {
+function isBetterPacking(
+  candidate: PackingResult,
+  current: PackingResult | null
+) {
   if (!current) return true;
-  if (Math.abs(candidate.canvasHeight - current.canvasHeight) > EPSILON) return candidate.canvasHeight < current.canvasHeight;
-  const candidateRight = Math.max(...candidate.packedImages.map((image) => image.left + image.renderW));
-  const currentRight = Math.max(...current.packedImages.map((image) => image.left + image.renderW));
+  if (Math.abs(candidate.canvasHeight - current.canvasHeight) > EPSILON)
+    return candidate.canvasHeight < current.canvasHeight;
+  const candidateRight = Math.max(
+    ...candidate.packedImages.map((image) => image.left + image.renderW)
+  );
+  const currentRight = Math.max(
+    ...current.packedImages.map((image) => image.left + image.renderW)
+  );
   return candidateRight < currentRight;
 }
 
 function stackImages(images: ImageItem[]): PackingResult {
   let nextTop = GAP_PX;
   const packedImages = images.map((image) => {
-    const orientation = getOrientations(image).reduce((best, current) => (current.renderW < best.renderW ? current : best));
-    const packedImage: PackedImage = { ...image, left: GAP_PX, top: nextTop, renderW: orientation.renderW, renderH: orientation.renderH, isRotated: orientation.isRotated };
+    const orientation = getOrientations(image).reduce((best, current) =>
+      current.renderW < best.renderW ? current : best
+    );
+    const packedImage = createPackedImage(image, {
+      ...orientation,
+      left: GAP_PX,
+      top: nextTop,
+      score: [0, 0, 0, 0],
+    });
     nextTop += orientation.renderH + GAP_PX;
     return packedImage;
   });
@@ -349,20 +499,27 @@ function stackImages(images: ImageItem[]): PackingResult {
 
 export function packImages(images: ImageItem[]): PackingResult {
   const packableImages = images.filter(hasUsableSize);
-  if (packableImages.length === 0) return { packedImages:[], canvasHeight: GAP_PX * 2 };
+  if (packableImages.length === 0)
+    return { packedImages: [], canvasHeight: GAP_PX * 2 };
 
   let bestPacking: PackingResult | null = null;
   for (const order of buildPackingOrders(packableImages)) {
     for (const heuristic of PACKING_HEURISTICS) {
       const candidate = packImageOrderGreedy(order, heuristic);
-      if (candidate && isBetterPacking(candidate, bestPacking)) bestPacking = candidate;
+      if (candidate && isBetterPacking(candidate, bestPacking))
+        bestPacking = candidate;
     }
   }
 
   for (const order of buildPackingOrders(packableImages)) {
     for (const heuristic of PACKING_HEURISTICS) {
-      const candidate = packImageOrderSearch(order, heuristic, bestPacking?.canvasHeight ?? Infinity);
-      if (candidate && isBetterPacking(candidate, bestPacking)) bestPacking = candidate;
+      const candidate = packImageOrderSearch(
+        order,
+        heuristic,
+        bestPacking?.canvasHeight ?? Infinity
+      );
+      if (candidate && isBetterPacking(candidate, bestPacking))
+        bestPacking = candidate;
     }
   }
 
@@ -379,8 +536,8 @@ function loadImageElement(src: string) {
 }
 
 export async function savePackedImagesAsCmykJpeg(
-  packedImages: PackedImage[], 
-  canvasHeight: number, 
+  packedImages: PackedImage[],
+  canvasHeight: number,
   includeLabels: boolean
 ) {
   const exportWidth = Math.ceil(ARTBOARD_WIDTH_PX);
@@ -392,8 +549,15 @@ export async function savePackedImagesAsCmykJpeg(
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) throw new Error("Could not create export canvas.");
 
-  const loadedImages = await Promise.all(packedImages.map(async (image) => ({ id: image.id, element: await loadImageElement(image.url) })));
-  const imageElementsById = new Map(loadedImages.map((image) =>[image.id, image.element]));
+  const loadedImages = await Promise.all(
+    packedImages.map(async (image) => ({
+      id: image.id,
+      element: await loadImageElement(image.url),
+    }))
+  );
+  const imageElementsById = new Map(
+    loadedImages.map((image) => [image.id, image.element])
+  );
 
   context.fillStyle = "white";
   context.fillRect(0, 0, exportWidth, exportHeight);
@@ -404,28 +568,64 @@ export async function savePackedImagesAsCmykJpeg(
     const imageElement = imageElementsById.get(image.id);
     if (!imageElement) continue;
 
+    const sourceScaleX = imageElement.naturalWidth / image.naturalWidth;
+    const sourceScaleY = imageElement.naturalHeight / image.naturalHeight;
+    const sourceX = image.sourceX * sourceScaleX;
+    const sourceY = image.sourceY * sourceScaleY;
+    const sourceW = image.sourceW * sourceScaleX;
+    const sourceH = image.sourceH * sourceScaleY;
+
     if (image.isRotated) {
       context.save();
       context.translate(image.left + image.renderW, image.top);
       context.rotate(Math.PI / 2);
-      context.drawImage(imageElement, 0, 0, image.naturalWidth, image.naturalHeight);
+      context.drawImage(
+        imageElement,
+        sourceX,
+        sourceY,
+        sourceW,
+        sourceH,
+        0,
+        0,
+        image.sourceW,
+        image.sourceH
+      );
       context.restore();
     } else {
-      context.drawImage(imageElement, image.left, image.top, image.renderW, image.renderH);
+      context.drawImage(
+        imageElement,
+        sourceX,
+        sourceY,
+        sourceW,
+        sourceH,
+        image.left,
+        image.top,
+        image.renderW,
+        image.renderH
+      );
     }
 
     if (includeLabels) {
       context.fillStyle = "black";
       context.font = "42px monospace";
       context.textBaseline = "top";
-      const wCm = (image.naturalWidth * PX_TO_CM).toFixed(2);
-      const hCm = (image.naturalHeight * PX_TO_CM).toFixed(2);
-      context.fillText(`W: ${wCm} cm | H: ${hCm} cm`, image.left, image.top + image.renderH + 8);
+      const wCm = (image.sourceW * PX_TO_CM).toFixed(2);
+      const hCm = (image.sourceH * PX_TO_CM).toFixed(2);
+      context.fillText(
+        `W: ${wCm} cm | H: ${hCm} cm`,
+        image.left,
+        image.top + image.renderH + 8
+      );
     }
   }
 
   const imageData = context.getImageData(0, 0, exportWidth, exportHeight);
-  const jpegBytes = encodeCmykJpeg(imageData.data, exportWidth, exportHeight, 0.9);
+  const jpegBytes = encodeCmykJpeg(
+    imageData.data,
+    exportWidth,
+    exportHeight,
+    0.9
+  );
   const blob = new Blob([jpegBytes], { type: "image/jpeg" });
   saveAs(blob, `tiles-cmyk-${Date.now()}.jpg`);
 }
